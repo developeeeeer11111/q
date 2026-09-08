@@ -232,7 +232,7 @@ def _scan_local_gguf_models(base_dir: Path, existing_filenames: set[str]) -> dic
     # Walk all subdirectories and collect .gguf files grouped by parent directory
     dirs_with_gguf: dict[Path, list[Path]] = {}
     try:
-        for gguf_file in base_dir.rglob("*.gguf", recurse_symlinks=True):
+        for gguf_file in base_dir.rglob("*.gguf"):
             if gguf_file.is_file():
                 parent = gguf_file.parent
                 dirs_with_gguf.setdefault(parent, []).append(gguf_file)
@@ -816,6 +816,9 @@ class QwenVLGGUFBase:
         top_k=None,
         pool_size=None,
         keep_last_prompt=False,
+        image2=None,
+        image3=None,
+        image4=None,
     ):
         print(f"[QwenVL GGUF DEBUG] Starting run with seed={seed}, keep_last_prompt={keep_last_prompt}")
 
@@ -837,7 +840,11 @@ class QwenVLGGUFBase:
         prompt_template = SYSTEM_PROMPTS.get(preset_prompt, preset_prompt)
 
         # Generate cache key with all inputs including seed
+        extra_images = [img for img in (image2, image3, image4) if img is not None]
         image_hash = get_image_hash(image)
+        if extra_images:
+            combined = "|".join([image_hash or ""] + [get_image_hash(img) or "" for img in extra_images])
+            image_hash = hashlib.sha256(combined.encode("utf-8")).hexdigest()
         video_hash = get_video_hash(video)
         cache_key = get_cache_key(model_name, preset_prompt, custom_prompt, image_hash, video_hash, int(seed))
 
@@ -860,23 +867,25 @@ class QwenVLGGUFBase:
         print(f"[QwenVL GGUF DEBUG] Final prompt: {prompt[:100]}...")
 
         images_b64: list[str] = []
-        if image is not None:
-            print(f"[QwenVL GGUF DEBUG] Processing image...")
-            print(f"[QwenVL GGUF DEBUG] Image shape before processing: {image.shape}")
+        for slot_name, img_input in (("image", image), ("image2", image2), ("image3", image3), ("image4", image4)):
+            if img_input is None:
+                continue
+            print(f"[QwenVL GGUF DEBUG] Processing {slot_name}...")
+            print(f"[QwenVL GGUF DEBUG] {slot_name} shape before processing: {img_input.shape}")
 
-            if len(image.shape) == 4:  # [batch, height, width, channels]
-                print(f"[QwenVL GGUF DEBUG] Detected batch image with shape: {image.shape}")
-                frame_img = image[0]
-                if image.shape[0] > 1:
-                    print(f"[QwenVL GGUF DEBUG] IMAGE input contains {image.shape[0]} items; using the first item only. Use the video input for multi-frame analysis.")
+            if len(img_input.shape) == 4:  # [batch, height, width, channels]
+                print(f"[QwenVL GGUF DEBUG] Detected batch image with shape: {img_input.shape}")
+                frame_img = img_input[0]
+                if img_input.shape[0] > 1:
+                    print(f"[QwenVL GGUF DEBUG] {slot_name} input contains {img_input.shape[0]} items; using the first item only. Use the video input for multi-frame analysis.")
                 print(f"[QwenVL GGUF DEBUG] Single image from batch, shape: {frame_img.shape}")
                 img = _tensor_to_base64_png(frame_img)
                 if img:
-                        images_b64.append(img)
+                    images_b64.append(img)
             else:
                 # Regular single image [height, width, channels]
-                print(f"[QwenVL GGUF DEBUG] Regular single image, shape: {image.shape}")
-                img = _tensor_to_base64_png(image)
+                print(f"[QwenVL GGUF DEBUG] Regular single image, shape: {img_input.shape}")
+                img = _tensor_to_base64_png(img_input)
                 if img:
                     images_b64.append(img)
         if video is not None:
@@ -983,6 +992,9 @@ class AILab_QwenVL_GGUF(QwenVLGGUFBase):
                             },
             "optional": {
                 "image": ("IMAGE",),
+                "image2": ("IMAGE",),
+                "image3": ("IMAGE",),
+                "image4": ("IMAGE",),
                 "video": ("IMAGE",),
             },
         }
@@ -1002,6 +1014,9 @@ class AILab_QwenVL_GGUF(QwenVLGGUFBase):
         seed,
         keep_last_prompt,
         image=None,
+        image2=None,
+        image3=None,
+        image4=None,
         video=None,
     ):
         return self.run(
@@ -1009,6 +1024,9 @@ class AILab_QwenVL_GGUF(QwenVLGGUFBase):
             preset_prompt=preset_prompt,
             custom_prompt=custom_prompt,
             image=image,
+            image2=image2,
+            image3=image3,
+            image4=image4,
             video=video,
             frame_count=16,
             max_tokens=max_tokens,
@@ -1066,6 +1084,9 @@ class AILab_QwenVL_GGUF_Advanced(QwenVLGGUFBase):
                             },
             "optional": {
                 "image": ("IMAGE",),
+                "image2": ("IMAGE",),
+                "image3": ("IMAGE",),
+                "image4": ("IMAGE",),
                 "video": ("IMAGE",),
             },
         }
@@ -1096,6 +1117,9 @@ class AILab_QwenVL_GGUF_Advanced(QwenVLGGUFBase):
         seed,
         keep_last_prompt,
         image=None,
+        image2=None,
+        image3=None,
+        image4=None,
         video=None,
     ):
         return self.run(
@@ -1103,6 +1127,9 @@ class AILab_QwenVL_GGUF_Advanced(QwenVLGGUFBase):
             preset_prompt=preset_prompt,
             custom_prompt=custom_prompt,
             image=image,
+            image2=image2,
+            image3=image3,
+            image4=image4,
             video=video,
             frame_count=frame_count,
             max_tokens=max_tokens,
